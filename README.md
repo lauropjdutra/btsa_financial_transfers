@@ -1,4 +1,4 @@
-# Brasil Terrenos Holding — Sistema de Transferências Financeiras
+# Sistema de Transferências Financeiras
 
 Solução completa desenvolvida para o desafio técnico de **Desenvolvedor .NET Pleno**, contemplando uma **API REST em .NET 8 (C#)** e uma interface web corporativa em **React + TypeScript**.
 

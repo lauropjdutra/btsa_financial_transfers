@@ -1,209 +1,271 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Transfer } from '../types/financial';
-import { formatCurrency, formatDateTime, translateTransferStatus } from '../utils/formatters';
+import {
+  formatCurrency,
+  formatDateTime,
+  formatScheduledDateTime,
+  formatShortDateTime,
+  translateTransferStatus
+} from '../utils/formatters';
 
 interface TransfersHistoryTableProps {
   transfers: Transfer[];
+  transferNotes: Record<string, string>;
   onCancelScheduled: (transferId: string) => Promise<void>;
   onLookupById: (transferId: string) => Promise<Transfer | null>;
+  onClose: () => void;
+}
+
+function sanitizeHistoryText(text: string): string {
+  return text
+    .replace(/A conta de (origem|destino)\s*\([^)]+\)/gi, 'A conta de $1')
+    .replace(/\bBlocked\b/gi, 'bloqueada')
+    .replace(/\bInactive\b/gi, 'inativa')
+    .replace(/\bActive\b/gi, 'ativa');
 }
 
 export function TransfersHistoryTable({
   transfers,
+  transferNotes,
   onCancelScheduled,
-  onLookupById
+  onLookupById,
+  onClose
 }: TransfersHistoryTableProps) {
   const [searchId, setSearchId] = useState('');
-  const [inspectedTransfer, setInspectedTransfer] = useState<Transfer | null>(null);
+  const [expandedTransferId, setExpandedTransferId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   async function handleSearchSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!searchId.trim()) return;
-    const found = await onLookupById(searchId.trim());
+    const trimmed = searchId.trim();
+    if (!trimmed) return;
+
+    const existing = transfers.find((t) => t.id.toLowerCase() === trimmed.toLowerCase());
+    if (existing) {
+      setExpandedTransferId(existing.id);
+      return;
+    }
+
+    const found = await onLookupById(trimmed);
     if (found) {
-      setInspectedTransfer(found);
+      setExpandedTransferId(found.id);
     }
   }
 
-  async function handleCancelClick(transferId: string) {
+  async function handleCancelClick(e: React.MouseEvent, transferId: string) {
+    e.stopPropagation();
     setCancellingId(transferId);
     try {
       await onCancelScheduled(transferId);
-      if (inspectedTransfer?.id === transferId) {
-        const updated = await onLookupById(transferId);
-        setInspectedTransfer(updated);
-      }
     } finally {
       setCancellingId(null);
     }
   }
 
+  function toggleRowExpansion(transferId: string) {
+    setExpandedTransferId((current) => (current === transferId ? null : transferId));
+  }
+
   return (
-    <section className="panel">
-      <div className="panel-header">
-        <div>
-          <h2 className="panel-title">Histórico, Status e Agendamentos</h2>
-          <p className="panel-subtitle">
-            Consulte transferências por ID (GET /api/transfers/&#123;id&#125;), acompanhe tentativas rejeitadas e cancele agendamentos pendentes.
-          </p>
-        </div>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card modal-card-wide" onClick={(e) => e.stopPropagation()}>
+        <div className="panel-header">
+          <div className="panel-title-group">
+            <h2 className="panel-title">Histórico de Transferências</h2>
+            <span className="badge badge-neutral">{transfers.length} registros</span>
+          </div>
 
-        <form onSubmit={handleSearchSubmit} className="lookup-bar">
-          <input
-            type="text"
-            placeholder="Consultar por ID (GUID)..."
-            value={searchId}
-            onChange={(e) => setSearchId(e.target.value)}
-          />
-          <button type="submit" className="btn btn-secondary btn-sm">
-            Consultar ID
-          </button>
-        </form>
-      </div>
-
-      {inspectedTransfer && (
-        <div className="inspector-box">
-          <div className="inspector-header">
-            <strong>Detalhes da Transferência Consultada: <code>{inspectedTransfer.id}</code></strong>
+          <div className="modal-header-actions">
+            <form onSubmit={handleSearchSubmit} className="search-inline">
+              <input
+                type="text"
+                placeholder="Buscar transferência por ID"
+                value={searchId}
+                onChange={(e) => setSearchId(e.target.value)}
+              />
+              <button type="submit" className="btn btn-secondary btn-sm">
+                Buscar
+              </button>
+            </form>
             <button
               type="button"
-              className="btn-link"
-              onClick={() => setInspectedTransfer(null)}
+              className="modal-close-icon-btn"
+              onClick={onClose}
+              aria-label="Fechar modal"
+              title="Fechar"
             >
-              Fechar detalhes
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M18 6 6 18" />
+                <path d="m6 6 12 12" />
+              </svg>
             </button>
           </div>
-          <div className="inspector-grid">
-            <div>
-              <span>Status:</span>{' '}
-              <strong>{translateTransferStatus(inspectedTransfer.status)}</strong>
+        </div>
+
+        <div className="modal-body-scroll">
+          {transfers.length === 0 ? (
+            <div className="empty-state">
+              Nenhuma transferência registrada até o momento.
             </div>
-            <div>
-              <span>Valor:</span>{' '}
-              <strong>{formatCurrency(inspectedTransfer.amount)}</strong>
-            </div>
-            <div>
-              <span>Origem:</span>{' '}
-              <strong>{inspectedTransfer.sourceAccountHolder ?? inspectedTransfer.sourceAccountId}</strong>
-            </div>
-            <div>
-              <span>Destino:</span>{' '}
-              <strong>{inspectedTransfer.destinationAccountHolder ?? inspectedTransfer.destinationAccountId}</strong>
-            </div>
-            <div>
-              <span>Criada em:</span> {formatDateTime(inspectedTransfer.createdAtUtc)}
-            </div>
-            <div>
-              <span>Agendada para:</span> {formatDateTime(inspectedTransfer.scheduledForUtc)}
-            </div>
-            <div>
-              <span>Executada em:</span> {formatDateTime(inspectedTransfer.executedAtUtc)}
-            </div>
-            <div>
-              <span>Chave Idempotência:</span>{' '}
-              <code>{inspectedTransfer.idempotencyKey ?? 'Não informada'}</code>
-            </div>
-          </div>
-          {inspectedTransfer.failureReason && (
-            <div className="inspector-failure">
-              <strong>Motivo da Rejeição:</strong> {inspectedTransfer.failureReason}
+          ) : (
+            <div className="table-responsive">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Modalidade</th>
+                    <th>Origem / Destino</th>
+                    <th>Valor</th>
+                    <th>Status</th>
+                    <th>Data e hora</th>
+                    <th>Descrição</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transfers.map((transfer) => {
+                    const userNote = transferNotes[transfer.id];
+                    const isExpanded = expandedTransferId === transfer.id;
+                    const primaryDateUtc =
+                      transfer.executedAtUtc ??
+                      transfer.cancelledAtUtc ??
+                      transfer.scheduledForUtc ??
+                      transfer.createdAtUtc;
+
+                    return (
+                      <Fragment key={transfer.id}>
+                        <tr
+                          className={`history-row ${isExpanded ? 'history-row-expanded' : ''}`}
+                          onClick={() => toggleRowExpansion(transfer.id)}
+                          title="Clique para expandir detalhes da transferência"
+                        >
+                          <td className="id-full-cell">
+                            <code className="mono-id-full">{transfer.id}</code>
+                          </td>
+                          <td>
+                            <span className="modality-badge">
+                              {transfer.isScheduled ? 'Agendada' : 'Imediata'}
+                            </span>
+                          </td>
+                          <td className="participants-cell">
+                            <div className="participant-line">
+                              <strong>De:</strong> {transfer.sourceAccountHolder ?? transfer.sourceAccountId}
+                            </div>
+                            <div className="participant-line">
+                              <strong>Para:</strong> {transfer.destinationAccountHolder ?? transfer.destinationAccountId}
+                            </div>
+                          </td>
+                          <td className="amount-cell">{formatCurrency(transfer.amount)}</td>
+                          <td>
+                            <span className={`status-pill status-transfer-${transfer.status.toLowerCase()}`}>
+                              {translateTransferStatus(transfer.status)}
+                            </span>
+                          </td>
+                          <td className="dates-cell">
+                            {formatShortDateTime(primaryDateUtc)}
+                          </td>
+                          <td className="reason-cell">
+                            <div className="reason-text-clamp">
+                              {transfer.failureReason ? (
+                                <span className="text-danger">{sanitizeHistoryText(transfer.failureReason)}</span>
+                              ) : userNote ? (
+                                <span>{userNote}</span>
+                              ) : (
+                                '—'
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+
+                        {isExpanded && (
+                          <tr className="history-detail-row">
+                            <td colSpan={7}>
+                              <div className="testimonial-detail-card">
+                                <div className="testimonial-detail-grid">
+                                  <div>
+                                    <span>Identificador Único (GUID)</span>
+                                    <strong><code>{transfer.id}</code></strong>
+                                  </div>
+                                  <div>
+                                    <span>Conta de Origem (Débito)</span>
+                                    <strong>{transfer.sourceAccountHolder ?? transfer.sourceAccountId}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Conta de Destino (Crédito)</span>
+                                    <strong>{transfer.destinationAccountHolder ?? transfer.destinationAccountId}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Status</span>
+                                    <strong>{translateTransferStatus(transfer.status)}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Valor da Operação</span>
+                                    <strong>{formatCurrency(transfer.amount)}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Modalidade da Transferência</span>
+                                    <strong>{transfer.isScheduled ? 'Agendada' : 'Imediata'}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Descrição Informada</span>
+                                    <strong>{userNote ?? 'Nenhuma descrição informada'}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Eventos</span>
+                                    <strong className="detail-events-list">
+                                      <span>Criada {formatDateTime(transfer.createdAtUtc)}</span>
+                                      {transfer.scheduledForUtc && !transfer.executedAtUtc && (
+                                        <span>Agendada {formatScheduledDateTime(transfer.scheduledForUtc)}</span>
+                                      )}
+                                      {transfer.executedAtUtc && (
+                                        <span>Processada {formatDateTime(transfer.executedAtUtc)}</span>
+                                      )}
+                                      {transfer.cancelledAtUtc && (
+                                        <span>Cancelada {formatDateTime(transfer.cancelledAtUtc)}</span>
+                                      )}
+                                    </strong>
+                                  </div>
+                                </div>
+
+                                {transfer.failureReason && (
+                                  <div className="inspector-failure">
+                                    <strong>Motivo da Rejeição:</strong> {sanitizeHistoryText(transfer.failureReason)}
+                                  </div>
+                                )}
+
+                                {transfer.status === 'Scheduled' && (
+                                  <div className="testimonial-detail-actions">
+                                    <button
+                                      type="button"
+                                      className="btn btn-danger btn-sm"
+                                      disabled={cancellingId === transfer.id}
+                                      onClick={(e) => handleCancelClick(e, transfer.id)}
+                                    >
+                                      {cancellingId === transfer.id ? 'Cancelando...' : 'Cancelar agendamento'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
-      )}
-
-      {transfers.length === 0 ? (
-        <div className="empty-state">
-          Nenhuma transferência registrada até o momento.
-        </div>
-      ) : (
-        <div className="table-responsive">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>ID / Tipo</th>
-                <th>Origem → Destino</th>
-                <th>Valor</th>
-                <th>Status</th>
-                <th>Datas (Criação / Agendamento / Execução)</th>
-                <th>Observação / Motivo</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transfers.map((transfer) => (
-                <tr key={transfer.id}>
-                  <td>
-                    <div className="mono-id" title={transfer.id}>
-                      {transfer.id.slice(0, 8)}...
-                    </div>
-                    <span className="sub-label">
-                      {transfer.isScheduled ? 'Agendada' : 'Imediata'}
-                    </span>
-                  </td>
-                  <td>
-                    <div>
-                      <strong>De:</strong> {transfer.sourceAccountHolder ?? transfer.sourceAccountId.slice(0, 8)}
-                    </div>
-                    <div>
-                      <strong>Para:</strong> {transfer.destinationAccountHolder ?? transfer.destinationAccountId.slice(0, 8)}
-                    </div>
-                  </td>
-                  <td className="amount-cell">{formatCurrency(transfer.amount)}</td>
-                  <td>
-                    <span className={`status-pill status-transfer-${transfer.status.toLowerCase()}`}>
-                      {transfer.status}
-                    </span>
-                  </td>
-                  <td className="dates-cell">
-                    <div>Criada: {formatDateTime(transfer.createdAtUtc)}</div>
-                    {transfer.scheduledForUtc && (
-                      <div>Agendada: {formatDateTime(transfer.scheduledForUtc)}</div>
-                    )}
-                    {transfer.executedAtUtc && (
-                      <div>Processada: {formatDateTime(transfer.executedAtUtc)}</div>
-                    )}
-                    {transfer.cancelledAtUtc && (
-                      <div>Cancelada: {formatDateTime(transfer.cancelledAtUtc)}</div>
-                    )}
-                  </td>
-                  <td className="reason-cell">
-                    {transfer.failureReason ? (
-                      <span className="text-danger">{transfer.failureReason}</span>
-                    ) : transfer.idempotencyKey ? (
-                      <span className="sub-label">Idemp: <code>{transfer.idempotencyKey}</code></span>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td>
-                    <div className="table-actions">
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => setInspectedTransfer(transfer)}
-                      >
-                        Ver
-                      </button>
-                      {transfer.status === 'Scheduled' && (
-                        <button
-                          type="button"
-                          className="btn btn-danger btn-sm"
-                          disabled={cancellingId === transfer.id}
-                          onClick={() => handleCancelClick(transfer.id)}
-                        >
-                          {cancellingId === transfer.id ? 'Cancelando...' : 'Cancelar'}
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
+      </div>
+    </div>
   );
 }

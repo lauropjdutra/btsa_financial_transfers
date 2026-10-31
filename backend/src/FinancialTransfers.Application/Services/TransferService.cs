@@ -276,6 +276,16 @@ public class TransferService : ITransferService
         DateTime nowUtc,
         CancellationToken cancellationToken)
     {
+        if (!sourceAccount.IsActive)
+        {
+            return $"A conta de origem está {sourceAccount.GetStatusDescriptionPtBr()} e não pode realizar transferências.";
+        }
+
+        if (!destinationAccount.IsActive)
+        {
+            return $"A conta de destino está {destinationAccount.GetStatusDescriptionPtBr()} e não pode receber transferências.";
+        }
+
         var oneHourAgoUtc = nowUtc.AddHours(-1);
         var isNightPeriod = _dateTimeProvider.IsNightPeriod(nowUtc);
         var periodLabel = isNightPeriod ? "noturno" : "diurno";
@@ -288,17 +298,12 @@ public class TransferService : ITransferService
         var maxAttempts = sourceAccount.GetHourlyAttemptsLimit(isNightPeriod);
         if (attemptsInLastHour >= maxAttempts)
         {
-            return $"Limite de tentativas por hora excedido para o período {periodLabel} (máximo: {maxAttempts} tentativas/hora).";
+            return $"Limite de tentativas por hora excedido na conta de origem para o período {periodLabel} (máximo: {maxAttempts} tentativas/hora).";
         }
 
-        if (!sourceAccount.IsActive)
+        if (!sourceAccount.HasSufficientFunds(amount))
         {
-            return $"A conta de origem ({sourceAccount.HolderName}) está {sourceAccount.Status} e não pode realizar transferências.";
-        }
-
-        if (!destinationAccount.IsActive)
-        {
-            return $"A conta de destino ({destinationAccount.HolderName}) está {destinationAccount.Status} e não pode receber transferências.";
+            return $"Saldo insuficiente na conta de origem. Saldo disponível + cheque especial: R$ {sourceAccount.TotalAvailableFunds:N2} | Valor solicitado: R$ {amount:N2}.";
         }
 
         var completedAmountInLastHour = await _transferRepository.GetCompletedAmountInLastHourAsync(
@@ -309,12 +314,7 @@ public class TransferService : ITransferService
         var maxHourlyAmount = sourceAccount.GetHourlyAmountLimit(isNightPeriod);
         if (completedAmountInLastHour + amount > maxHourlyAmount)
         {
-            return $"Limite de valor por hora excedido para o período {periodLabel}. Limite: R$ {maxHourlyAmount:N2} | Já transferido na última hora: R$ {completedAmountInLastHour:N2}.";
-        }
-
-        if (!sourceAccount.HasSufficientFunds(amount))
-        {
-            return $"Saldo insuficiente. Saldo disponível + cheque especial: R$ {sourceAccount.TotalAvailableFunds:N2} | Valor solicitado: R$ {amount:N2}.";
+            return $"Limite de valor por hora excedido na conta de origem para o período {periodLabel}. Limite: R$ {maxHourlyAmount:N2} | Já transferido por esta conta na última hora: R$ {completedAmountInLastHour:N2}.";
         }
 
         return null;

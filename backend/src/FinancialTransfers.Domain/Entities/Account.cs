@@ -68,16 +68,24 @@ public class Account : Entity
 
     public bool IsActive => Status == AccountStatus.Active;
 
+    public string GetStatusDescriptionPtBr() => Status switch
+    {
+        AccountStatus.Active => "ativa",
+        AccountStatus.Blocked => "bloqueada",
+        AccountStatus.Inactive => "inativa",
+        _ => Status.ToString().ToLowerInvariant()
+    };
+
     public void EnsureCanSendTransfer()
     {
         if (!IsActive)
-            throw new DomainException($"A conta de origem ({HolderName}) está {Status} e não pode realizar transferências.");
+            throw new DomainException($"A conta de origem ({HolderName}) está {GetStatusDescriptionPtBr()} e não pode realizar transferências.");
     }
 
     public void EnsureCanReceiveTransfer()
     {
         if (!IsActive)
-            throw new DomainException($"A conta de destino ({HolderName}) está {Status} e não pode receber transferências.");
+            throw new DomainException($"A conta de destino ({HolderName}) está {GetStatusDescriptionPtBr()} e não pode receber transferências.");
     }
 
     public bool HasSufficientFunds(decimal amount) => TotalAvailableFunds >= amount;
